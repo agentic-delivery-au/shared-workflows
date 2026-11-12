@@ -72,8 +72,9 @@ The workflow has no scanning step of its own. It scans for secrets only through 
 `betterleaks` hook, and the hook shipped by default reads the staged diff. CI stages nothing, so
 that diff is empty and the check passes having scanned nothing.
 
-Override three hooks as agentic-delivery-au/base-template does, so each checks the files pre-commit
-passes. This repo's `.pre-commit-config.yaml` has the same overrides:
+Override three hooks so each checks the files pre-commit passes. This repo's
+`.pre-commit-config.yaml` has the same overrides (the `exclude` on `check-added-large-files` is only
+needed where a generated `uv.lock` grows past the size limit):
 
 ```yaml
 - id: check-merge-conflict
@@ -93,9 +94,8 @@ passes. This repo's `.pre-commit-config.yaml` has the same overrides:
 With these overrides the hooks check every committed file, not only staged ones:
 
 - `check-merge-conflict` fails on any line that starts with seven `<` or `>` and a space, or is
-  exactly `=======`, such as a heading underlined with seven `=` (as in
-  agentic-delivery-au/base-template). `stages: [pre-commit]` keeps it, and betterleaks, out of
-  `commit-msg`.
+  exactly `=======`, such as a heading underlined with seven `=`. `stages: [pre-commit]` keeps it,
+  and betterleaks, out of `commit-msg`.
 - `check-added-large-files` fails on any committed file over 500 KB, such as a generated lockfile or
   an image. Exclude it, move it to Git LFS, or raise `--maxkb`.
 - `--config` must name a file that exists: betterleaks exits with an error when it does not, so the
