@@ -1,0 +1,25 @@
+name: pre-commit-ci
+
+# Calls this repo's own pre-commit.yml by local path; callers elsewhere pin a release tag.
+
+on:
+  pull_request:
+    # Default types exclude `edited`, so a retargeted PR keeps a stale result.
+    types: [opened, reopened, edited, synchronize]
+  push:
+    branches: [main]
+
+# An in-progress run on `main` is not cancelled; a newer push replaces only a pending one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Job id and called job name form the required check `pre-commit / pre-commit`; see the docs.
+  pre-commit:
+    uses: ./.github/workflows/pre-commit.yml
+    with:
+      uv: true
