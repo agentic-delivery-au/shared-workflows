@@ -1,0 +1,72 @@
+name: pre-commit
+
+# Reusable: callers pin a release tag and own their triggers. Docs: docs/pre-commit-workflow.md.
+
+on:
+  workflow_call:
+    inputs:
+      node:
+        description: Set up Node and run `npm ci` before the hooks
+        type: boolean
+        default: false
+      node-version:
+        description: Node version, used when `node` is true
+        type: string
+        default: "22"
+      python-version:
+        description: Python version for pre-commit
+        type: string
+        default: "3.14"
+      uv:
+        description: Install uv and run `uv sync --locked` before the hooks
+        type: boolean
+        default: false
+      uv-all-packages:
+        description: Install uv and run `uv sync --all-packages --locked` instead, for uv workspaces
+        type: boolean
+        default: false
+      uv-tool:
+        description: Install uv only, without `uv sync`, for hooks that run a tool through `uvx`
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        id: python
+        with:
+          python-version: ${{ inputs.python-version }}
+      # A `language: system` hook such as prettier needs node_modules first.
+      - uses: actions/setup-node@v7
+        if: inputs.node
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+      - run: npm ci
+        if: inputs.node
+      # setup-uv publishes no bare major tag after v7, so pin a full version: @v10 404s.
+      - uses: astral-sh/setup-uv@v10.3.3
+        if: inputs.uv || inputs.uv-all-packages || inputs.uv-tool
+        with:
+          enable-cache: true
+      # --frozen would install from a lockfile that no longer matches pyproject.
+      - run: uv sync --locked
+        if: inputs.uv && !inputs.uv-all-packages
+      - run: uv sync --all-packages --locked
+        if: inputs.uv-all-packages
+      # Pinned so a new pre-commit release cannot change a CI result on its own;
+      # bump in step with what contributors install locally.
+      - run: python -m pip install pre-commit==4.6.2
+      # Venvs break across Python patches and runners mix them mid-rollout: fall back to the same config; only Python venvs rebuild.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}-py${{ steps.python.outputs.python-version }}
+          restore-keys: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}-
+      - run: pre-commit run --all-files --show-diff-on-failure

@@ -1,0 +1,62 @@
+[project]
+# Not a package: this exists so uv can resolve and lock the tools that test the workflows.
+name = "shared-workflows"
+version = "0.0.0"
+description = "Tooling and tests for the reusable workflows"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+# Pinned exactly. Dependabot raises the upgrade PRs through the "uv" ecosystem
+# entry in .github/dependabot.yml.
+dev = [
+  "pytest==9.2.0",
+  "pyyaml==6.0.3",
+  "ruff==0.17.3",
+]
+
+[tool.ruff]
+line-length = 100
+# target-version is inferred from requires-python.
+# scripts/ is base-template's, not this repo's: it arrives with the template and
+# is linted and type-checked there, so checking it again here only invites a
+# local fix that then diverges from upstream.
+extend-exclude = ["scripts/**"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",  # pycodestyle
+  "F",       # pyflakes
+  "I",       # isort
+  "B",       # bugbear
+  "C4",      # comprehensions
+  "UP",      # pyupgrade
+  "N",       # pep8-naming
+  "D",       # pydocstyle
+  "ANN",     # annotations
+  "S",       # bandit (security)
+  "G",       # flake8-logging-format
+  "ARG",     # unused arguments
+  "RUF",     # ruff-specific
+  "TD003",   # TODO without an issue link
+  "BLE",     # blind `except Exception`
+]
+ignore = [
+  "D417",    # Args/Returns/Raises sections not required when the signature is self-explanatory
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D100", "D101", "D102", "D103", "S101", "ANN"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config"]

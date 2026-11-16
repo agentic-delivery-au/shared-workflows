@@ -1,0 +1,26 @@
+name: adr-check
+
+# Calls this repo's own adr-check.yml by local path; callers elsewhere pin a release tag.
+
+on:
+  pull_request:
+    # labeled/unlabeled so adding adr-correction re-runs the check. `edited` keeps a retargeted PR current.
+    types: [opened, reopened, edited, synchronize, labeled, unlabeled]
+  push:
+    branches: [main]
+
+# An in-progress run on `main` is not cancelled; a newer push replaces only a pending one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Job id and called job name form the required check `adr-check / adr-check`; see the docs.
+  adr-check:
+    uses: ./.github/workflows/adr-check.yml
+    with:
+      # Keep in step with the `uvx adr-check==` pin in .pre-commit-config.yaml.
+      adr-check-version: "0.1.1"
