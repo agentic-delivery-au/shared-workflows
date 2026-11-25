@@ -94,8 +94,9 @@ Contents read/write, Pull requests read/write and Metadata read, installed only 
 
 The check reports as `<caller job> / dependabot-auto-merge`, so
 `dependabot-auto-merge / dependabot-auto-merge` with the caller above. Do not make it a required
-check: it passes whether the decision was merge or review, so requiring it gates nothing. The repo's
-tests must be the required check.
+check. It passes on both decisions, so it says nothing about whether an update is safe. When a run
+fails, for example with Allow auto-merge off, a required check would also block a person from
+merging the PR by hand. The repo's tests must be the required check.
 
 ## Releases
 
