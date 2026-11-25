@@ -1,0 +1,84 @@
+name: dependabot-auto-merge
+
+# Reusable: callers pin a release tag and own their triggers. Docs: docs/dependabot-auto-merge-workflow.md.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  dependabot-auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    outputs:
+      decision: ${{ steps.decide.outputs.decision }}
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@v3
+      - name: Decide
+        id: decide
+        shell: python
+        env:
+          UPDATED_DEPENDENCIES: ${{ steps.metadata.outputs.updated-dependencies-json }}
+        run: |
+          import json
+          import os
+          import re
+
+
+          ACTIONS_ECOSYSTEMS = {"github_actions", "github-actions", "github"}
+
+
+          def parse(version: object) -> tuple[int, int, int] | None:
+              if not isinstance(version, str):
+                  return None
+              match = re.fullmatch(r"[vV]?(\d+)(?:\.(\d+))?(?:\.(\d+))?", version.strip())
+              if not match:
+                  return None
+              return tuple(int(part or 0) for part in match.groups())
+
+
+          def classify(prev: object, new: object, ecosystem: object) -> tuple[str, str]:
+              # The App lacks the Workflows permission, so it cannot merge a PR that edits workflows.
+              if not isinstance(ecosystem, str) or not ecosystem.strip():
+                  return "review", "unreadable ecosystem"
+              if ecosystem.strip().lower() in ACTIONS_ECOSYSTEMS:
+                  return "review", "github-actions updates edit workflows"
+              old, cur = parse(prev), parse(new)
+              if old is None or cur is None:
+                  return "review", "version missing or not plain numeric"
+              if cur <= old:
+                  return "review", "not an upgrade"
+              if old[:2] == (0, 0) or cur[:2] == (0, 0):
+                  return "review", "0.0.x"
+              if old[0] != cur[0]:
+                  return "review", "major"
+              if old[0] == 0 and old[1] != cur[1]:
+                  return "review", "minor on 0.x"
+              return "merge", "patch or minor"
+
+
+          def decide(raw: str | None) -> str:
+              try:
+                  dependencies = json.loads(raw or "")
+              except ValueError:
+                  return "review"
+              if not isinstance(dependencies, list) or not dependencies:
+                  return "review"
+              results = []
+              for dependency in dependencies:
+                  if not isinstance(dependency, dict):
+                      return "review"
+                  prev = dependency.get("prevVersion")
+                  new = dependency.get("newVersion")
+                  result, reason = classify(prev, new, dependency.get("packageEcosystem"))
+                  print(f"{dependency.get('dependencyName')}: {prev} → {new}: {result} ({reason})")
+                  results.append(result)
+              return "merge" if all(r == "merge" for r in results) else "review"
+
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"decision={decide(os.environ.get('UPDATED_DEPENDENCIES'))}\n")
