@@ -29,6 +29,9 @@ jobs:
           import re
 
 
+          ACTIONS_ECOSYSTEMS = {"github_actions", "github-actions", "github"}
+
+
           def parse(version: object) -> tuple[int, int, int] | None:
               if not isinstance(version, str):
                   return None
@@ -38,17 +41,22 @@ jobs:
               return tuple(int(part or 0) for part in match.groups())
 
 
-          def classify(prev: object, new: object) -> str:
+          def classify(prev: object, new: object, ecosystem: object) -> tuple[str, str]:
+              # The App lacks the Workflows permission, so it cannot merge a PR that edits workflows.
+              if isinstance(ecosystem, str) and ecosystem.lower() in ACTIONS_ECOSYSTEMS:
+                  return "review", "github-actions updates edit workflows"
               old, cur = parse(prev), parse(new)
-              if old is None or cur is None or cur <= old:
-                  return "review"
+              if old is None or cur is None:
+                  return "review", "version missing or not plain numeric"
+              if cur <= old:
+                  return "review", "not an upgrade"
               if old[:2] == (0, 0) or cur[:2] == (0, 0):
-                  return "review"
+                  return "review", "0.0.x"
               if old[0] != cur[0]:
-                  return "review"
+                  return "review", "major"
               if old[0] == 0 and old[1] != cur[1]:
-                  return "review"
-              return "merge"
+                  return "review", "minor on 0.x"
+              return "merge", "patch or minor"
 
 
           def decide(raw: str | None) -> str:
@@ -64,8 +72,8 @@ jobs:
                       return "review"
                   prev = dependency.get("prevVersion")
                   new = dependency.get("newVersion")
-                  result = classify(prev, new)
-                  print(f"{dependency.get('dependencyName')}: {prev} → {new}: {result}")
+                  result, reason = classify(prev, new, dependency.get("packageEcosystem"))
+                  print(f"{dependency.get('dependencyName')}: {prev} → {new}: {result} ({reason})")
                   results.append(result)
               return "merge" if all(r == "merge" for r in results) else "review"
 

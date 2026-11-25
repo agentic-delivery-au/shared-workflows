@@ -23,14 +23,14 @@ def _step(name: str) -> dict:
     return next(s for s in _steps() if s.get("name") == name)
 
 
-def _dep(name: str, prev: object, new: object) -> dict:
+def _dep(name: str, prev: object, new: object, ecosystem: str = "pip") -> dict:
     """One entry of fetch-metadata's updated-dependencies-json."""
     return {
         "dependencyName": name,
         "dependencyType": "direct:production",
         "updateType": "version-update:semver-patch",
         "directory": "/",
-        "packageEcosystem": "pip",
+        "packageEcosystem": ecosystem,
         "targetBranch": "main",
         "prevVersion": prev,
         "newVersion": new,
@@ -108,6 +108,23 @@ def test_single_dependency(decide, prev, new, expected):
 
 def test_grouped_patch_and_major_is_review(decide):
     assert decide([_dep("a", "1.0.0", "1.0.1"), _dep("b", "2.0.0", "3.0.0")]) == "review"
+
+
+def test_pip_patch_alone_is_merge(decide):
+    assert decide([_dep("a", "1.0.0", "1.0.1", "pip")]) == "merge"
+
+
+@pytest.mark.parametrize("ecosystem", ["github_actions", "github-actions", "GitHub_Actions"])
+def test_github_actions_patch_is_review(decide, ecosystem):
+    assert decide([_dep("actions/checkout", "v4.2.1", "v4.2.2", ecosystem)]) == "review"
+
+
+def test_grouped_pip_patch_and_github_actions_patch_is_review(decide):
+    deps = [
+        _dep("a", "1.0.0", "1.0.1"),
+        _dep("actions/checkout", "v4.2.1", "v4.2.2", "github_actions"),
+    ]
+    assert decide(deps) == "review"
 
 
 def test_grouped_patch_and_minor_is_merge(decide):
