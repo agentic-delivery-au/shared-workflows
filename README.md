@@ -8,10 +8,11 @@ README covers what differs from the templates and keeps the Python setup the rep
 
 ## What it provides
 
-| Item                         | Path                               |
-| ---------------------------- | ---------------------------------- |
-| Reusable pre-commit workflow | `.github/workflows/pre-commit.yml` |
-| Reusable adr-check workflow  | `.github/workflows/adr-check.yml`  |
+| Item                                    | Path                                          |
+| --------------------------------------- | --------------------------------------------- |
+| Reusable pre-commit workflow            | `.github/workflows/pre-commit.yml`            |
+| Reusable adr-check workflow             | `.github/workflows/adr-check.yml`             |
+| Reusable dependabot-auto-merge workflow | `.github/workflows/dependabot-auto-merge.yml` |
 
 `.github/workflows/pre-commit.yml` is the reusable workflow.
 [Its inputs and the check name are in `docs/pre-commit-workflow.md`](docs/pre-commit-workflow.md).
@@ -21,14 +22,18 @@ locally. The required check here is `pre-commit / pre-commit`.
 `.github/workflows/adr-check.yml` is the reusable workflow that runs the ADR check from PyPI.
 [Its inputs and the check name are in `docs/adr-check-workflow.md`](docs/adr-check-workflow.md).
 
+`.github/workflows/dependabot-auto-merge.yml` is the reusable workflow that approves and auto-merges
+low-risk Dependabot updates and labels the rest for review.
+[Its secrets, decision rules and opt-in checklist are in `docs/dependabot-auto-merge-workflow.md`](docs/dependabot-auto-merge-workflow.md).
+
 An ADR is an architecture decision record. The check is
 [adr-check](https://github.com/agentic-delivery-au/adr-check).
 
 ## Using it from another repo
 
 A caller can use a reusable workflow once a release that includes it is tagged. It pins an exact
-release tag, which release-please creates in the form `vX.Y.Z`. The same applies to both reusable
-workflows, `pre-commit.yml` and `adr-check.yml`:
+release tag, which release-please creates in the form `vX.Y.Z`. The same applies to all three
+reusable workflows, `pre-commit.yml`, `adr-check.yml` and `dependabot-auto-merge.yml`:
 
 ```yaml
 jobs:
@@ -37,10 +42,11 @@ jobs:
 ```
 
 The pre-commit inputs are in [`docs/pre-commit-workflow.md`](docs/pre-commit-workflow.md) and the
-adr-check inputs are in [`docs/adr-check-workflow.md`](docs/adr-check-workflow.md). There is no
-floating major tag, so a release never changes a caller until the caller moves its pin. Dependabot
-moves it. Every template's `dependabot.yml` has the `github-actions` ecosystem, which covers `uses:`
-references to reusable workflows. The bump PR runs the caller's own CI.
+adr-check inputs are in [`docs/adr-check-workflow.md`](docs/adr-check-workflow.md). The auto-merge
+secrets are in [`docs/dependabot-auto-merge-workflow.md`](docs/dependabot-auto-merge-workflow.md).
+There is no floating major tag, so a release never changes a caller until the caller moves its pin.
+Dependabot moves it. Every template's `dependabot.yml` has the `github-actions` ecosystem, which
+covers `uses:` references to reusable workflows. The bump PR runs the caller's own CI.
 
 One condition has to hold: **the caller's ruleset must require the right check name.** A
 reusable-workflow job reports as `<caller job> / <called job>`, for example `lint / pre-commit`. A
@@ -69,7 +75,8 @@ interpreter. Ruff infers its `target-version` from it.
 ### Tests
 
 `uv run pytest` runs the suite, the same run `tests.yml` makes in CI. The tests check the branching
-in the reusable adr-check workflow's run script and the dependabot-auto-merge decision script.
+in the reusable adr-check workflow's run script, the dependabot-auto-merge decision script and its
+approve, arm and label paths.
 
 The ruleset requires four checks: `Validate PR title`, `adr-check / adr-check`,
 `pre-commit / pre-commit` and `pytest`. `adr-check / adr-check` and `pre-commit / pre-commit` are
