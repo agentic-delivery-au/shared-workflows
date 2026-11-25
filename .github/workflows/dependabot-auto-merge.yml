@@ -104,12 +104,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if [ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" = true ]; then
+          armed=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$armed" = true ]; then
             gh pr merge --disable-auto "$PR_URL"
           fi
           if ! gh api "repos/$GH_REPO/labels/needs-review" --silent; then
+            # A concurrent run may have created it between the probe and the create.
             gh label create needs-review --color FBCA04 \
-              --description "Dependabot update that needs a human look"
+              --description "Dependabot update that needs a human look" ||
+              gh api "repos/$GH_REPO/labels/needs-review" --silent
           fi
           gh pr edit "$PR_URL" --add-label needs-review
       - name: Approve and arm auto-merge
@@ -118,7 +121,13 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          held=$(gh pr view "$PR_URL" --json labels --jq '[.labels[].name] | index("needs-review") != null')
+          if [ "$held" = true ]; then
+            echo "::notice::PR is labelled needs-review; not approving or arming auto-merge."
+            exit 0
+          fi
           gh pr review --approve "$PR_URL"
-          gh pr merge --auto --squash "$PR_URL"
+          gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"
