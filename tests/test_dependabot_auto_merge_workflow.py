@@ -1,6 +1,7 @@
-"""Tests for the decision script in the reusable dependabot-auto-merge workflow."""
+"""Tests for the reusable dependabot-auto-merge workflow: its gate, decision, and actions."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -220,9 +221,12 @@ def test_workflow_never_checks_out_code():
     assert not any(u.startswith("actions/checkout") for u in uses)
 
 
-def test_job_only_runs_for_dependabot():
+def test_job_only_runs_for_dependabot_pr_and_actor():
     job = _workflow()["jobs"]["dependabot-auto-merge"]
-    assert job["if"] == "github.event.pull_request.user.login == 'dependabot[bot]'"
+    assert job["if"] == (
+        "github.event.pull_request.user.login == 'dependabot[bot]'"
+        " && github.actor == 'dependabot[bot]'"
+    )
 
 
 def test_decide_step_is_python_and_reads_fetch_metadata():
@@ -236,8 +240,184 @@ def test_decide_step_is_python_and_reads_fetch_metadata():
     assert _steps()[0]["uses"].startswith("dependabot/fetch-metadata@v3")
 
 
-def test_workflow_is_read_only_and_exposes_the_decision():
+def test_github_token_is_read_only_and_job_exposes_the_decision():
     workflow = _workflow()
     assert workflow["permissions"] == {"contents": "read", "pull-requests": "read"}
     job = workflow["jobs"]["dependabot-auto-merge"]
     assert job["outputs"] == {"decision": "${{ steps.decide.outputs.decision }}"}
+
+
+def _by_id(step_id: str) -> dict:
+    return next(s for s in _steps() if s.get("id") == step_id)
+
+
+REVIEW_NAME = "Label for review"
+MERGE_NAME = "Approve and arm auto-merge"
+
+
+def test_secrets_are_declared_and_required():
+    secrets = _workflow()[True]["workflow_call"]["secrets"]
+    assert set(secrets) == {"app-client-id", "app-private-key"}
+    for secret in secrets.values():
+        assert secret["required"] is True
+        assert secret["description"]
+
+
+def test_token_step_is_scoped_to_this_repository():
+    step = _by_id("app-token")
+    assert step["uses"] == "actions/create-github-app-token@v3"
+    assert step["with"] == {
+        "client-id": "${{ secrets.app-client-id }}",
+        "private-key": "${{ secrets.app-private-key }}",
+        "permission-contents": "write",
+        "permission-pull-requests": "write",
+    }
+    assert _steps().index(step) > _steps().index(_by_id("decide"))
+
+
+def test_path_conditions():
+    assert _step(REVIEW_NAME)["if"] == "steps.decide.outputs.decision != 'merge'"
+    assert _step(MERGE_NAME)["if"] == "steps.decide.outputs.decision == 'merge'"
+
+
+def test_no_run_script_interpolates_expressions():
+    runs = [s["run"] for s in _steps() if "run" in s and s.get("shell") != "python"]
+    assert runs
+    assert not any("${{" in run for run in runs)
+
+
+@pytest.mark.parametrize("name", [REVIEW_NAME, MERGE_NAME])
+def test_path_steps_take_values_from_env(name):
+    step = _step(name)
+    assert step["env"] == {
+        "GH_TOKEN": "${{ steps.app-token.outputs.token }}",
+        "PR_URL": "${{ github.event.pull_request.html_url }}",
+        "GH_REPO": "${{ github.repository }}",
+        **({"HEAD_SHA": "${{ github.event.pull_request.head.sha }}"} if name == MERGE_NAME else {}),
+    }
+    assert "set -euo pipefail" in step["run"]
+
+
+@pytest.fixture
+def run_path(tmp_path):
+    stub = tmp_path / "gh"
+    log = tmp_path / "calls.txt"
+    counter = tmp_path / "probes.txt"
+    stub.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> "{log}"\n'
+        'case "$1 $2" in\n'
+        '  "pr view")\n'
+        '    [ "${STUB_VIEW_FAIL:-}" = 1 ] && exit 1\n'
+        '    case "$*" in\n'
+        '      *labels*) echo "${STUB_LABELED:-false}" ;;\n'
+        '      *) echo "${STUB_ARMED:-false}" ;;\n'
+        "    esac ;;\n"
+        '  "api repos/o/r/labels/needs-review")\n'
+        f'    n=$(cat "{counter}" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "{counter}"\n'
+        '    exit "$(echo "$STUB_PROBES" | cut -d" " -f"$n")" ;;\n'
+        '  "label create") exit "${STUB_CREATE_EXIT:-0}" ;;\n'
+        "esac\n"
+    )
+    stub.chmod(0o755)
+
+    def run(
+        name: str,
+        *,
+        armed: bool = False,
+        probes: str = "0",
+        create_exit: int = 0,
+        view_fails: bool = False,
+        labeled: bool = False,
+        ok: bool = True,
+    ) -> list[str]:
+        env = {
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "PR_URL": "https://github.com/o/r/pull/1",
+            "GH_TOKEN": "t",
+            "GH_REPO": "o/r",
+            "HEAD_SHA": "abc123",
+            "STUB_ARMED": "true" if armed else "false",
+            "STUB_LABELED": "true" if labeled else "false",
+            "STUB_PROBES": probes,
+            "STUB_CREATE_EXIT": str(create_exit),
+            "STUB_VIEW_FAIL": "1" if view_fails else "0",
+        }
+        # The script is the workflow's own, read from the repo; bash is the runner's shell.
+        result = subprocess.run(  # noqa: S603  # the workflow's own script
+            ["/bin/bash", "-c", _step(name)["run"]],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert (result.returncode == 0) == ok, result.stderr
+        return log.read_text().splitlines() if log.exists() else []
+
+    return run
+
+
+PR = "https://github.com/o/r/pull/1"
+
+
+@pytest.mark.parametrize("armed", [True, False])
+@pytest.mark.parametrize("label_exists", [True, False])
+def test_review_path_never_approves_or_arms(run_path, armed, label_exists):
+    calls = run_path(REVIEW_NAME, armed=armed, probes="0" if label_exists else "1")
+    assert f"pr edit {PR} --add-label needs-review" in calls
+    assert not any(c.startswith("pr review") or c.startswith("pr merge --auto") for c in calls)
+
+
+def test_review_path_disarms_an_armed_auto_merge(run_path):
+    calls = run_path(REVIEW_NAME, armed=True)
+    assert f"pr merge --disable-auto {PR}" in calls
+
+
+def test_review_path_leaves_unarmed_pr_alone(run_path):
+    calls = run_path(REVIEW_NAME, armed=False)
+    assert not any("--disable-auto" in c for c in calls)
+
+
+def test_review_path_keeps_an_existing_label(run_path):
+    calls = run_path(REVIEW_NAME, probes="0")
+    assert not any(c.startswith("label create") for c in calls)
+
+
+def test_review_path_creates_a_missing_label_without_force(run_path):
+    creates = [c for c in run_path(REVIEW_NAME, probes="1") if c.startswith("label create")]
+    assert len(creates) == 1
+    assert creates[0].startswith("label create needs-review ")
+    assert "--force" not in creates[0]
+
+
+def test_review_path_tolerates_a_label_created_by_a_racing_run(run_path):
+    calls = run_path(REVIEW_NAME, probes="1 0", create_exit=1)
+    assert f"pr edit {PR} --add-label needs-review" in calls
+
+
+def test_review_path_fails_when_label_create_really_fails(run_path):
+    calls = run_path(REVIEW_NAME, probes="1 1", create_exit=1, ok=False)
+    assert not any(c.startswith("pr edit") for c in calls)
+
+
+def test_review_path_fails_loud_when_the_armed_check_fails(run_path):
+    calls = run_path(REVIEW_NAME, view_fails=True, ok=False)
+    assert not any(c.startswith(("pr edit", "pr merge --auto")) for c in calls)
+
+
+def test_merge_path_approves_then_arms_auto_merge_pinned_to_head(run_path):
+    assert run_path(MERGE_NAME) == [
+        f'pr view {PR} --json labels --jq [.labels[].name] | index("needs-review") != null',
+        f"pr review --approve {PR}",
+        f"pr merge --auto --squash --match-head-commit abc123 {PR}",
+    ]
+
+
+def test_merge_path_skips_a_pr_labelled_needs_review(run_path):
+    calls = run_path(MERGE_NAME, labeled=True)
+    assert not any(c.startswith(("pr review", "pr merge")) for c in calls)
+
+
+def test_merge_path_fails_loud_when_the_label_check_fails(run_path):
+    calls = run_path(MERGE_NAME, view_fails=True, ok=False)
+    assert not any(c.startswith(("pr review", "pr merge")) for c in calls)

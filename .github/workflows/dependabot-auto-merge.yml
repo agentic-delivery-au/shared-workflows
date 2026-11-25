@@ -4,6 +4,13 @@ name: dependabot-auto-merge
 
 on:
   workflow_call:
+    secrets:
+      app-client-id:
+        description: Client ID of the auto-merge GitHub App.
+        required: true
+      app-private-key:
+        description: Private key of the auto-merge GitHub App.
+        required: true
 
 permissions:
   contents: read
@@ -12,7 +19,7 @@ permissions:
 jobs:
   dependabot-auto-merge:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.actor == 'dependabot[bot]'
     outputs:
       decision: ${{ steps.decide.outputs.decision }}
     steps:
@@ -82,3 +89,45 @@ jobs:
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"decision={decide(os.environ.get('UPDATED_DEPENDENCIES'))}\n")
+      - id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Label for review
+        if: steps.decide.outputs.decision != 'merge'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          armed=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$armed" = true ]; then
+            gh pr merge --disable-auto "$PR_URL"
+          fi
+          if ! gh api "repos/$GH_REPO/labels/needs-review" --silent; then
+            # A concurrent run may have created it between the probe and the create.
+            gh label create needs-review --color FBCA04 \
+              --description "Dependabot update that needs a human look" ||
+              gh api "repos/$GH_REPO/labels/needs-review" --silent
+          fi
+          gh pr edit "$PR_URL" --add-label needs-review
+      - name: Approve and arm auto-merge
+        if: steps.decide.outputs.decision == 'merge'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          held=$(gh pr view "$PR_URL" --json labels --jq '[.labels[].name] | index("needs-review") != null')
+          if [ "$held" = true ]; then
+            echo "::notice::PR is labelled needs-review; not approving or arming auto-merge."
+            exit 0
+          fi
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"
