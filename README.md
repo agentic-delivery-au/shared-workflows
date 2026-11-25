@@ -69,7 +69,7 @@ interpreter. Ruff infers its `target-version` from it.
 ### Tests
 
 `uv run pytest` runs the suite, the same run `tests.yml` makes in CI. The tests check the branching
-in the reusable adr-check workflow's run script.
+in the reusable adr-check workflow's run script and the dependabot-auto-merge decision script.
 
 The ruleset requires four checks: `Validate PR title`, `adr-check / adr-check`,
 `pre-commit / pre-commit` and `pytest`. `adr-check / adr-check` and `pre-commit / pre-commit` are

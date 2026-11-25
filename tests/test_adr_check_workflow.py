@@ -37,7 +37,7 @@ def run_script(tmp_path):
             **env,
         }
         # The script is the workflow's own, read from the repo; bash is the runner's shell.
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(  # noqa: S603  # the workflow's own script
             ["/bin/bash", "-c", script], env=full_env, capture_output=True, text=True, check=False
         )
         args = log.read_text().splitlines() if log.exists() else None

@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   dependabot-auto-merge:
@@ -28,7 +29,7 @@ jobs:
           import re
 
 
-          def parse(version):
+          def parse(version: object) -> tuple[int, int, int] | None:
               if not isinstance(version, str):
                   return None
               match = re.fullmatch(r"[vV]?(\d+)(?:\.(\d+))?(?:\.(\d+))?", version.strip())
@@ -37,7 +38,7 @@ jobs:
               return tuple(int(part or 0) for part in match.groups())
 
 
-          def classify(prev, new):
+          def classify(prev: object, new: object) -> str:
               old, cur = parse(prev), parse(new)
               if old is None or cur is None or cur <= old:
                   return "review"
@@ -50,7 +51,7 @@ jobs:
               return "merge"
 
 
-          def decide(raw):
+          def decide(raw: str | None) -> str:
               try:
                   dependencies = json.loads(raw or "")
               except ValueError:

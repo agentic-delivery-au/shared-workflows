@@ -54,7 +54,7 @@ def decide(tmp_path):
         output.write_text("")
         env = {"UPDATED_DEPENDENCIES": text, "GITHUB_OUTPUT": str(output)}
         # The script is the workflow's own, read from the repo.
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(  # noqa: S603  # the workflow's own script
             [sys.executable, str(script)], env=env, capture_output=True, text=True, check=False
         )
         assert result.returncode == 0, result.stderr
@@ -154,7 +154,7 @@ def test_missing_env_is_review(tmp_path):
     script = tmp_path / "decide.py"
     script.write_text(_step("Decide")["run"])
     output = tmp_path / "output.txt"
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(  # noqa: S603  # the workflow's own script
         [sys.executable, str(script)],
         env={"GITHUB_OUTPUT": str(output)},
         capture_output=True,
@@ -174,7 +174,7 @@ def test_logs_one_line_per_dependency(tmp_path):
         ),
         "GITHUB_OUTPUT": str(tmp_path / "output.txt"),
     }
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(  # noqa: S603  # the workflow's own script
         [sys.executable, str(script)], env=env, capture_output=True, text=True, check=False
     )
     lines = result.stdout.splitlines()
@@ -206,6 +206,6 @@ def test_decide_step_is_python_and_reads_fetch_metadata():
 
 def test_workflow_is_read_only_and_exposes_the_decision():
     workflow = _workflow()
-    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["permissions"] == {"contents": "read", "pull-requests": "read"}
     job = workflow["jobs"]["dependabot-auto-merge"]
     assert job["outputs"] == {"decision": "${{ steps.decide.outputs.decision }}"}
