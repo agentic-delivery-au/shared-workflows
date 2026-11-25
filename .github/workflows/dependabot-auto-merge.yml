@@ -19,7 +19,7 @@ permissions:
 jobs:
   dependabot-auto-merge:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.actor == 'dependabot[bot]'
     outputs:
       decision: ${{ steps.decide.outputs.decision }}
     steps:
@@ -104,8 +104,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh label create needs-review --force --color FBCA04 \
-            --description "Dependabot update that needs a human look"
+          if [ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" = true ]; then
+            gh pr merge --disable-auto "$PR_URL"
+          fi
+          if ! gh api "repos/$GH_REPO/labels/needs-review" --silent; then
+            gh label create needs-review --color FBCA04 \
+              --description "Dependabot update that needs a human look"
+          fi
           gh pr edit "$PR_URL" --add-label needs-review
       - name: Approve and arm auto-merge
         if: steps.decide.outputs.decision == 'merge'

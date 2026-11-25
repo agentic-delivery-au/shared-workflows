@@ -1,4 +1,4 @@
-"""Tests for the decision script in the reusable dependabot-auto-merge workflow."""
+"""Tests for the reusable dependabot-auto-merge workflow: its gate, decision, and actions."""
 
 import json
 import os
@@ -221,9 +221,12 @@ def test_workflow_never_checks_out_code():
     assert not any(u.startswith("actions/checkout") for u in uses)
 
 
-def test_job_only_runs_for_dependabot():
+def test_job_only_runs_for_dependabot_pr_and_actor():
     job = _workflow()["jobs"]["dependabot-auto-merge"]
-    assert job["if"] == "github.event.pull_request.user.login == 'dependabot[bot]'"
+    assert job["if"] == (
+        "github.event.pull_request.user.login == 'dependabot[bot]'"
+        " && github.actor == 'dependabot[bot]'"
+    )
 
 
 def test_decide_step_is_python_and_reads_fetch_metadata():
@@ -237,7 +240,7 @@ def test_decide_step_is_python_and_reads_fetch_metadata():
     assert _steps()[0]["uses"].startswith("dependabot/fetch-metadata@v3")
 
 
-def test_workflow_is_read_only_and_exposes_the_decision():
+def test_github_token_is_read_only_and_job_exposes_the_decision():
     workflow = _workflow()
     assert workflow["permissions"] == {"contents": "read", "pull-requests": "read"}
     job = workflow["jobs"]["dependabot-auto-merge"]
@@ -298,15 +301,24 @@ def test_path_steps_take_values_from_env(name):
 def run_path(tmp_path):
     stub = tmp_path / "gh"
     log = tmp_path / "calls.txt"
-    stub.write_text(f'#!/bin/sh\necho "$*" >> "{log}"\n')
+    stub.write_text(
+        "#!/bin/sh\n"
+        f'echo "$*" >> "{log}"\n'
+        'case "$1 $2" in\n'
+        '  "pr view") echo "${STUB_ARMED:-false}" ;;\n'
+        '  "api repos/o/r/labels/needs-review") [ "${STUB_LABEL:-exists}" = exists ] || exit 1 ;;\n'
+        "esac\n"
+    )
     stub.chmod(0o755)
 
-    def run(name: str) -> list[str]:
+    def run(name: str, *, armed: bool = False, label_exists: bool = True) -> list[str]:
         env = {
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "PR_URL": "https://github.com/o/r/pull/1",
             "GH_TOKEN": "t",
             "GH_REPO": "o/r",
+            "STUB_ARMED": "true" if armed else "false",
+            "STUB_LABEL": "exists" if label_exists else "missing",
         }
         # The script is the workflow's own, read from the repo; bash is the runner's shell.
         result = subprocess.run(  # noqa: S603  # the workflow's own script
@@ -322,12 +334,37 @@ def run_path(tmp_path):
     return run
 
 
-def test_review_path_labels_and_never_approves_or_merges(run_path):
-    calls = run_path(REVIEW_NAME)
-    assert len(calls) == 2
-    assert calls[0].startswith("label create needs-review ")
-    assert calls[1] == "pr edit https://github.com/o/r/pull/1 --add-label needs-review"
-    assert not any(c.startswith(("pr review", "pr merge")) for c in calls)
+PR = "https://github.com/o/r/pull/1"
+
+
+@pytest.mark.parametrize("armed", [True, False])
+@pytest.mark.parametrize("label_exists", [True, False])
+def test_review_path_never_approves_or_arms(run_path, armed, label_exists):
+    calls = run_path(REVIEW_NAME, armed=armed, label_exists=label_exists)
+    assert f"pr edit {PR} --add-label needs-review" in calls
+    assert not any(c.startswith("pr review") or c.startswith("pr merge --auto") for c in calls)
+
+
+def test_review_path_disarms_an_armed_auto_merge(run_path):
+    calls = run_path(REVIEW_NAME, armed=True)
+    assert f"pr merge --disable-auto {PR}" in calls
+
+
+def test_review_path_leaves_unarmed_pr_alone(run_path):
+    calls = run_path(REVIEW_NAME, armed=False)
+    assert not any("--disable-auto" in c for c in calls)
+
+
+def test_review_path_keeps_an_existing_label(run_path):
+    calls = run_path(REVIEW_NAME, label_exists=True)
+    assert not any(c.startswith("label create") for c in calls)
+
+
+def test_review_path_creates_a_missing_label_without_force(run_path):
+    creates = [c for c in run_path(REVIEW_NAME, label_exists=False) if c.startswith("label create")]
+    assert len(creates) == 1
+    assert creates[0].startswith("label create needs-review ")
+    assert "--force" not in creates[0]
 
 
 def test_merge_path_approves_then_arms_auto_merge(run_path):
