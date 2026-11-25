@@ -1,0 +1,73 @@
+name: dependabot-auto-merge
+
+# Reusable: callers pin a release tag and own their triggers. Docs: docs/dependabot-auto-merge-workflow.md.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  dependabot-auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    outputs:
+      decision: ${{ steps.decide.outputs.decision }}
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@v3
+      - name: Decide
+        id: decide
+        shell: python
+        env:
+          UPDATED_DEPENDENCIES: ${{ steps.metadata.outputs.updated-dependencies-json }}
+        run: |
+          import json
+          import os
+          import re
+
+
+          def parse(version):
+              if not isinstance(version, str):
+                  return None
+              match = re.fullmatch(r"[vV]?(\d+)(?:\.(\d+))?(?:\.(\d+))?", version.strip())
+              if not match:
+                  return None
+              return tuple(int(part or 0) for part in match.groups())
+
+
+          def classify(prev, new):
+              old, cur = parse(prev), parse(new)
+              if old is None or cur is None or cur <= old:
+                  return "review"
+              if old[:2] == (0, 0) or cur[:2] == (0, 0):
+                  return "review"
+              if old[0] != cur[0]:
+                  return "review"
+              if old[0] == 0 and old[1] != cur[1]:
+                  return "review"
+              return "merge"
+
+
+          def decide(raw):
+              try:
+                  dependencies = json.loads(raw or "")
+              except ValueError:
+                  return "review"
+              if not isinstance(dependencies, list) or not dependencies:
+                  return "review"
+              results = []
+              for dependency in dependencies:
+                  if not isinstance(dependency, dict):
+                      return "review"
+                  prev = dependency.get("prevVersion")
+                  new = dependency.get("newVersion")
+                  result = classify(prev, new)
+                  print(f"{dependency.get('dependencyName')}: {prev} → {new}: {result}")
+                  results.append(result)
+              return "merge" if all(r == "merge" for r in results) else "review"
+
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"decision={decide(os.environ.get('UPDATED_DEPENDENCIES'))}\n")
