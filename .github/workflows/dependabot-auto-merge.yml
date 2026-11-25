@@ -43,7 +43,9 @@ jobs:
 
           def classify(prev: object, new: object, ecosystem: object) -> tuple[str, str]:
               # The App lacks the Workflows permission, so it cannot merge a PR that edits workflows.
-              if isinstance(ecosystem, str) and ecosystem.lower() in ACTIONS_ECOSYSTEMS:
+              if not isinstance(ecosystem, str) or not ecosystem.strip():
+                  return "review", "unreadable ecosystem"
+              if ecosystem.strip().lower() in ACTIONS_ECOSYSTEMS:
                   return "review", "github-actions updates edit workflows"
               old, cur = parse(prev), parse(new)
               if old is None or cur is None:

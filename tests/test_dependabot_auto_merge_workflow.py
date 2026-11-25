@@ -23,6 +23,9 @@ def _step(name: str) -> dict:
     return next(s for s in _steps() if s.get("name") == name)
 
 
+_MISSING = object()
+
+
 def _dep(name: str, prev: object, new: object, ecosystem: str = "pip") -> dict:
     """One entry of fetch-metadata's updated-dependencies-json."""
     return {
@@ -108,6 +111,16 @@ def test_single_dependency(decide, prev, new, expected):
 
 def test_grouped_patch_and_major_is_review(decide):
     assert decide([_dep("a", "1.0.0", "1.0.1"), _dep("b", "2.0.0", "3.0.0")]) == "review"
+
+
+@pytest.mark.parametrize("ecosystem", [_MISSING, "", "  ", None, 123, ["github_actions"]])
+def test_unreadable_ecosystem_is_review(decide, ecosystem):
+    dep = _dep("actions/checkout", "v4.2.1", "v4.2.2")
+    if ecosystem is _MISSING:
+        del dep["packageEcosystem"]
+    else:
+        dep["packageEcosystem"] = ecosystem
+    assert decide([dep]) == "review"
 
 
 def test_pip_patch_alone_is_merge(decide):
