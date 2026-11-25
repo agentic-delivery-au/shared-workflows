@@ -48,10 +48,12 @@ There is no floating major tag, so a release never changes a caller until the ca
 Dependabot moves it. Every template's `dependabot.yml` has the `github-actions` ecosystem, which
 covers `uses:` references to reusable workflows. The bump PR runs the caller's own CI.
 
-One condition has to hold: **the caller's ruleset must require the right check name.** A
-reusable-workflow job reports as `<caller job> / <called job>`, for example `lint / pre-commit`. A
-ruleset that still requires the old job name waits for a check that never reports. Change the
-ruleset in the same PR that switches to the shared workflow.
+One condition has to hold for `pre-commit.yml` and `adr-check.yml`: **the caller's ruleset must
+require the right check name.** A reusable-workflow job reports as `<caller job> / <called job>`,
+for example `lint / pre-commit`. A ruleset that still requires the old job name waits for a check
+that never reports. Change the ruleset in the same PR that switches to the shared workflow. The
+dependabot-auto-merge check is not a required check; see
+[its doc](docs/dependabot-auto-merge-workflow.md#the-check-name).
 
 ## Setup
 

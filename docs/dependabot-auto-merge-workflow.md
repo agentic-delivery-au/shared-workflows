@@ -36,7 +36,8 @@ jobs:
 Pin the exact release tag. The README explains how Dependabot moves the pin.
 
 `pull-requests: read` is required. fetch-metadata lists the PR's commits, and a called workflow
-cannot hold more than its caller grants, so leaving it out fails the run.
+cannot hold more than its caller grants, so leaving it out fails the run when the caller sets a
+`permissions:` block or the repo's default token is restricted. Include it either way.
 
 `AUTO_MERGE_APP_CLIENT_ID` and `AUTO_MERGE_APP_PRIVATE_KEY` must be org-level **Dependabot**
 secrets, not Actions secrets, because a Dependabot-triggered run sees only Dependabot secrets.
@@ -52,17 +53,17 @@ The workflow has no inputs.
 
 ## What it decides
 
-| Update                                                                                                                       | Decision                                         |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| Patch or minor                                                                                                               | merge                                            |
-| Major                                                                                                                        | review                                           |
-| On `0.x`: a minor                                                                                                            | review                                           |
-| On `0.x`: a patch                                                                                                            | merge                                            |
-| Any `0.0.x` change                                                                                                           | review                                           |
-| A grouped PR                                                                                                                 | the biggest bump; any review makes the PR review |
-| A security update                                                                                                            | the same rules                                   |
-| Any GitHub Actions dependency                                                                                                | review                                           |
-| Anything unreadable: SHAs, prereleases or build suffixes, a missing or unreadable version or ecosystem, downgrades, bad JSON | review                                           |
+| Update                                                                                                                                             | Decision                                         |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Patch or minor                                                                                                                                     | merge                                            |
+| Major                                                                                                                                              | review                                           |
+| On `0.x`: a minor                                                                                                                                  | review                                           |
+| On `0.x`: a patch                                                                                                                                  | merge                                            |
+| Any `0.0.x` change                                                                                                                                 | review                                           |
+| A grouped PR                                                                                                                                       | the biggest bump; any review makes the PR review |
+| A security update                                                                                                                                  | the same rules                                   |
+| Any GitHub Actions dependency                                                                                                                      | review                                           |
+| Anything unreadable: SHAs, prereleases or build suffixes, a missing or unreadable version or ecosystem, downgrades or unchanged versions, bad JSON | review                                           |
 
 GitHub Actions updates go to review because the App holds no Workflows permission, and GitHub
 refuses an App merge of a PR that edits `.github/workflows/`.
@@ -93,7 +94,8 @@ Contents read/write, Pull requests read/write and Metadata read, installed only 
 
 The check reports as `<caller job> / dependabot-auto-merge`, so
 `dependabot-auto-merge / dependabot-auto-merge` with the caller above. Do not make it a required
-check: it is skipped on every PR that is not from Dependabot.
+check: it passes whether the decision was merge or review, so requiring it gates nothing. The repo's
+tests must be the required check.
 
 ## Releases
 
