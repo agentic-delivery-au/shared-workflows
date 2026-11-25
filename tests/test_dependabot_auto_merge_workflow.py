@@ -114,7 +114,9 @@ def test_pip_patch_alone_is_merge(decide):
     assert decide([_dep("a", "1.0.0", "1.0.1", "pip")]) == "merge"
 
 
-@pytest.mark.parametrize("ecosystem", ["github_actions", "github-actions", "GitHub_Actions"])
+@pytest.mark.parametrize(
+    "ecosystem", ["github_actions", "github-actions", "GitHub_Actions", "github"]
+)
 def test_github_actions_patch_is_review(decide, ecosystem):
     assert decide([_dep("actions/checkout", "v4.2.1", "v4.2.2", ecosystem)]) == "review"
 
